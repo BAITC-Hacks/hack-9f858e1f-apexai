@@ -85,6 +85,14 @@ class AppTests(unittest.TestCase):
         self.act(action='confirm', token=result['pending']['token'])
         self.assertEqual(self.app.handle('other', {'action':'state'})['cart'], [])
 
+    def test_upload_is_session_local(self):
+        item = self.app.attach(self.sid, 'список.xlsx', b'not a real spreadsheet')
+        self.assertEqual(item['name'], 'список.xlsx')
+        self.assertEqual(len(self.store.load(self.sid)['uploads']), 1)
+        self.assertEqual(self.store.load('other')['uploads'], [])
+        with self.assertRaises(ValueError):
+            self.app.attach(self.sid, 'secret.exe', b'x')
+
     def test_minimum_batch_and_real_ekt_shape(self):
         p = normalize({'id':515291, 'name':'027228', 'price':64920, 'quantity':23,
                        'stores':[{'name':'Алматы','quantity':5}], 'properties':{'KRATNOST_MIN':'2'}})

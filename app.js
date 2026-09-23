@@ -72,7 +72,22 @@ async function request(body) {
   } catch (error) { say(tr('Запрос не выполнен. Проверьте соединение и повторите.','Сұрау орындалмады. Байланысты тексеріп, қайталаңыз.'));
   } finally { busy = false; el('send').disabled = false; el('activity').textContent = ''; }
 }
-function submit(text) {if (busy || !text.trim()) return; say(text, 'user'); el('message').value = ''; request({action:'chat',message:text})}
+async function upload() {
+  const input = el('attachment'); const file = input.files[0];
+  if (!file) return null;
+  if (file.size > 6 * 1024 * 1024) throw new Error('Файл больше 6 МБ.');
+  const form = new FormData(); form.append('file', file, file.name);
+  const response = await fetch('/api/upload', {method:'POST', body:form});
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Не удалось прикрепить файл.');
+  input.value = ''; el('attachmentStatus').textContent = `✓ ${data.file.name} (${Math.ceil(data.file.size / 1024)} КБ)`;
+  return data.file;
+}
+async function submit(text) {
+  if (busy || !text.trim()) return;
+  busy = true; el('send').disabled = true; el('activity').textContent = tr('Прикрепляю файл…','Файл тіркелуде…');
+  try { await upload(); say(text, 'user'); el('message').value = ''; busy = false; await request({action:'chat',message:text}); }
+  catch (error) { say(error.message || tr('Файл не удалось прикрепить.','Файл тіркелмеді.')); busy = false; el('send').disabled = false; el('activity').textContent = ''; }
+}
 el('chatForm').addEventListener('submit', event => {event.preventDefault();submit(el('message').value)});
 document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click', () => submit(b.dataset.query)));
 function translate() {
