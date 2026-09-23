@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ekt · AI-консультант</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <div class="brand"><span class="brand-mark">e</span><span>ekt</span><small>AI-консультант</small></div>
+        <span class="live"><i></i> Каталог подключён</span>
+      </section>
+      <section class="chat-card" aria-label="Чат с помощником">
+        <header><div><h1>Помогу подобрать электротехнику</h1><p>Наличие, характеристики, аналоги и оформление заказа</p></div><button class="language" id="language">RU / KZ</button></header>
+        <div class="conversation" id="conversation" aria-live="polite"></div>
+        <div class="quick-actions" id="quickActions">
+          <button data-query="Есть ли 027228?">Проверить наличие</button>
+          <button data-query="Подбери аналог LED STARK 30W">Найти аналог</button>
+          <button data-query="Какие условия доставки и оплаты?">Условия покупки</button>
+        </div>
+        <form id="chatForm" class="composer">
+          <input id="message" autocomplete="off" placeholder="Например: есть ли 027228 и можно 2 штуки?" />
+          <button type="submit" aria-label="Отправить">↑</button>
+        </form>
+        <p class="privacy">Не запрашиваем и не храним платёжные данные. Товар добавляется только после вашего явного «Да, добавь».</p>
+      </section>
+      <aside class="cart-card">
+        <div class="cart-heading"><div><span>Корзина</span><strong id="cartCount">0 товаров</strong></div><span class="cart-icon">🛒</span></div>
+        <div id="cartItems" class="cart-items"><p class="empty">Пока пусто</p></div>
+        <a class="checkout disabled" id="checkout" href="#" aria-disabled="true">Перейти к оформлению →</a>
+      </aside>
+    </main>
+    <template id="productTemplate"><article class="product-card"><div class="product-top"><span class="availability"></span><span class="article"></span></div><h3></h3><p class="product-meta"></p><div class="product-bottom"><strong></strong><button class="select-product">Выбрать</button></div></article></template>
+    <script src="app.js"></script>
+  </body>
+</html>
