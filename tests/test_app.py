@@ -40,6 +40,23 @@ class AppTests(unittest.TestCase):
         self.assertEqual(result['answer'], 'Для какого помещения нужен свет?')
         self.assertEqual(result['products'], [])
 
+    def test_english_greeting_and_cart_confirmation(self):
+        greeting = self.act(message='Hello', language='en')
+        self.assertTrue(greeting['answer'].startswith('Hello!'))
+        proposal = self.act(message='Add 2 pcs 027228', language='en')
+        self.assertEqual(proposal['pending']['qty'], 2)
+        self.assertEqual(proposal['cart'], [])
+        self.assertIn('local cart', proposal['answer'])
+        confirmed = self.act(message='Yes, add', language='en')
+        self.assertEqual(confirmed['cart'][0]['qty'], 2)
+        self.assertNotIn('Добавлено', confirmed['answer'])
+
+    def test_english_language_reaches_model(self):
+        with patch.object(self.app, 'ai', return_value={'answer':'What room is it for?', 'search_query':''}) as model:
+            result = self.act(message='I need something for my room', language='en')
+        self.assertEqual(result['answer'], 'What room is it for?')
+        self.assertEqual(model.call_args.args[3], 'en')
+
     def test_search_ratings_and_articles(self):
         for text, ids in [('Есть ли 027228?', [515291]), ('DRX250 125А', [48783]), ('Подбери аналог LED STARK 30W', [45357]), ('200300286_', [48783]), ('неизвестный товар zzz', [])]:
             self.assertEqual([p['id'] for p in search(self.catalog.all(), text)], ids)
@@ -236,4 +253,5 @@ class AppTests(unittest.TestCase):
             self.assertEqual(json.load(r)['cart'], [])
 
 if __name__ == '__main__': unittest.main()
+
 

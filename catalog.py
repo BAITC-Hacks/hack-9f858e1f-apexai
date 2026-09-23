@@ -99,8 +99,10 @@ STOP = set('есть ли мне нужен нужна нужно надо по�
 STOP.update('какие какая сколько стоит цена наличие характеристики характеристика технические техническая информация информация описание параметры сертификат сертификаты про по у есть'.split())
 
 
+STOP.update('add to cart please find show me the a an is in stock available product products pcs pieces units'.split())
+
 def search(products, query):
-    terms = [t for t in tokens(re.sub(r'[-+]?\d+(?:[.,]\d+)?\s*(?:штук\w*|шт\.?|дана)\b', '', query, flags=re.I)) if t not in STOP]
+    terms = [t for t in tokens(re.sub(r'[-+]?\d+(?:[.,]\d+)?\s*(?:штук\w*|шт\.?|дана|pcs|pieces|units)\b', '', query, flags=re.I)) if t not in STOP]
     if not terms:
         return []
     ranked = []
@@ -229,3 +231,4 @@ class Catalog:
         if self.source != 'demo':
             raise ValueError('Catalog unavailable')
         return next(p for p in self.all() if p['id'] == int(pid))
+

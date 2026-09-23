@@ -326,3 +326,6 @@ body { background: #10291e; }
 .welcome-submit { width:100%; padding:15px; border:0; margin-top:14px; background:#183527; color:white; cursor:pointer; }
 .welcome-dialog .region-note { color:#53614e; font-size:12px; }
 @media(max-width:440px) { .brand .ekt-logo { width:145px; height:auto; } .region-button { margin-left:0; } .welcome-dialog { padding:24px; } }
+
+
+html[lang=en] .assistant::before { content: "EKT / ASSISTANT"; }
