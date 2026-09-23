@@ -97,7 +97,9 @@ class Assistant:
                     'Используй только факты из products. Не выдумывай цены, остатки, сертификаты, доставку и совместимость. '
                     'При demo явно называй данные демонстрационными. Не заявляй о добавлении в корзину или оформлении заказа. '
                     'Верни answer (объяснение/уточнение) и search_query (короткое название, артикул или параметры без служебных слов). '
-                    'Условия доставки и оплаты уточняются у ekt.kz.',
+                    'Веди естественный диалог: если задача неясна, задай один-два вопроса о назначении и важных параметрах. '
+                    'Не требуй артикул: покупатель может описать задачу своими словами. Для приветствий и уточнений верни пустой search_query. '
+                    'Учитывай предыдущие ответы пользователя из истории. Условия доставки и оплаты уточняются у ekt.kz.',
                 'input': json.dumps({'question': query, 'products': products, 'catalog': self.catalog.status(), 'history': history[-6:], 'uploads': uploads or [], 'language': language}, ensure_ascii=False),
                 'text': {'format': {'type': 'json_schema', 'name': 'consultation', 'strict': True, 'schema': {
                     'type': 'object', 'properties': {'answer': {'type': 'string'}, 'search_query': {'type': 'string'}},
@@ -329,6 +331,15 @@ class Assistant:
             state['pending'] = None
             return self.response(state, 'Добавление отменено. Корзина не изменена.')
         state['pending'] = None  # New requests cannot confirm an earlier product.
+        conversational = re.sub(r'[^\w\s]', '', q).strip()
+        greeting = r'(привет|здравствуйте|здравствуй|добрый день|доброе утро|добрый вечер|сәлем|сәлеметсіз бе|салем|hello|hi)'
+        broad_request = r'(помоги|помогите|помоги выбрать|помогите выбрать|нужна помощь|что ты умеешь|что вы умеете|не знаю что выбрать|хочу купить|көмектес|көмек керек)'
+        if re.fullmatch(greeting + r'(?:\s+' + broad_request + r')?', conversational) or re.fullmatch(broad_request, conversational):
+            text = ('Здравствуйте! Я помогу подобрать электротехнику. Расскажите, что хотите сделать: например, выбрать освещение для комнаты или розетки для ремонта. Для какого помещения или задачи ищете товар?'
+                    if language == 'ru' else 'Сәлеметсіз бе! Электротехника таңдауға көмектесемін. Не жасағыңыз келеді: бөлмеге жарық таңдау ма, әлде жөндеуге розетка керек пе? Қай бөлмеге немесе қандай жұмысқа іздеп жүрсіз?')
+            return self.response(state, text)
+        if conversational in ('спасибо', 'благодарю', 'рахмет'):
+            return self.response(state, 'Пожалуйста! Если понадобится помощь с выбором, я рядом.' if language == 'ru' else 'Оқасы жоқ! Таңдауға көмек керек болса, осындамын.')
         if re.search(r'достав|оплат|минимальн|услов', q):
             if self.catalog.source == 'demo':
                 policy = json.loads((ROOT / 'data/demo-policy.json').read_text())
@@ -351,11 +362,13 @@ class Assistant:
             matches = [p for p in products if p['id'] == state['last']]
         if not matches and not wants_add:
             ai = self.ai(message, [], state['history'], language, state['uploads'])
+            if ai and not ai['search_query'].strip():
+                return self.response(state, ai['answer'])
             if ai and ai['search_query']:
                 matches = search(products, ai['search_query'])
         if not matches:
             prefix = photo_answer + '\n' if photo_answer else ''
-            return self.response(state, prefix + 'Не нашла точного совпадения в загруженном каталоге. Укажите артикул или название и параметры, например «DRX250 125А».')
+            return self.response(state, prefix + 'В загруженной части каталога пока нет точного совпадения. Расскажите, для какой задачи нужен товар и какие характеристики важны. Если есть название или код, их тоже можно прислать.')
         if len(matches) == 1:
             state['last'] = matches[0]['id']
         if wants_add:
@@ -546,3 +559,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

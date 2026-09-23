@@ -26,6 +26,20 @@ class AppTests(unittest.TestCase):
     def act(self, **body):
         return self.app.handle(self.sid, body)
 
+    def test_conversation_without_catalog_or_ai(self):
+        self.catalog.source = 'unavailable'
+        for message in ('Привет!', 'Здравствуйте', 'Помоги выбрать', 'Привет, помоги', 'Сәлем'):
+            result = self.act(message=message)
+            self.assertEqual(result['products'], [])
+            self.assertNotIn('совпадения', result['answer'])
+            self.assertIn('задач', result['answer'])
+
+    def test_ai_clarification_is_not_discarded(self):
+        with patch.object(self.app, 'ai', return_value={'answer': 'Для какого помещения нужен свет?', 'search_query': ''}):
+            result = self.act(message='Хочу сделать уютнее дома')
+        self.assertEqual(result['answer'], 'Для какого помещения нужен свет?')
+        self.assertEqual(result['products'], [])
+
     def test_search_ratings_and_articles(self):
         for text, ids in [('Есть ли 027228?', [515291]), ('DRX250 125А', [48783]), ('Подбери аналог LED STARK 30W', [45357]), ('200300286_', [48783]), ('неизвестный товар zzz', [])]:
             self.assertEqual([p['id'] for p in search(self.catalog.all(), text)], ids)
@@ -222,3 +236,4 @@ class AppTests(unittest.TestCase):
             self.assertEqual(json.load(r)['cart'], [])
 
 if __name__ == '__main__': unittest.main()
+

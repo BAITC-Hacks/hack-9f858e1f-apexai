@@ -132,10 +132,11 @@ el('record').addEventListener('click', recordVoice);
 document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click', () => submit(b.dataset.query)));
 function translate() {
   document.documentElement.lang = language; document.querySelectorAll('[data-ru]').forEach(n => n.textContent = n.dataset[language]);
-  el('language').textContent = language === 'ru' ? 'Қазақша' : 'Русский'; el('message').placeholder = tr('Например: добавь 2 шт 027228','Мысалы: DRX250 125А');
+  el('language').textContent = language === 'ru' ? 'Қазақша' : 'Русский'; el('message').placeholder = tr('Расскажите, что хотите подобрать…','Не таңдағыңыз келетінін айтыңыз…');
 }
 el('language').addEventListener('click', () => {if (busy) return; language = language === 'ru' ? 'kk' : 'ru';localStorage.setItem('ekt-language',language);translate();request({action:'state'})});
-translate();say(tr('Здравствуйте! Найду товары и характеристики, помогу сравнить варианты. Для добавления всегда попрошу подтверждение.','Сәлем! Тауарларды және сипаттамаларын табуға көмектесемін. Себетке қосу үшін растау сұраймын.'));request({action:'state'});
+translate();say(tr('Здравствуйте! Я ваш консультант EKT. Что подбираем сегодня — освещение, кабель, розетки? Расскажите о своей задаче, и я помогу с выбором.','Сәлеметсіз бе! Мен EKT кеңесшісімін. Бүгін не таңдаймыз — жарық, кабель немесе розетка? Қандай жұмысқа керек екенін айтыңыз, таңдауға көмектесемін.'));request({action:'state'});
 const statusTimer = setInterval(async () => {
   try { const r = await fetch('/api/status'); if (r.ok) {const s = await r.json();renderStatus(s);if (s.source !== 'loading' && !s.updating) clearInterval(statusTimer)}} catch {}
 }, 2000);
+
