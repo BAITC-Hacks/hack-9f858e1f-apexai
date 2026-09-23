@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import re
+import ssl
 import threading
 import time
 import urllib.request
@@ -10,12 +11,14 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 ROOT = Path(__file__).resolve().parent
+SYSTEM_CA_FILE = Path('/etc/ssl/cert.pem')
+TLS_CONTEXT = ssl.create_default_context(cafile=str(SYSTEM_CA_FILE)) if SYSTEM_CA_FILE.exists() else ssl.create_default_context()
 
 
 def request_json(url, headers=None, payload=None, timeout=8):
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with urllib.request.urlopen(req, timeout=timeout, context=TLS_CONTEXT) as response:
         return json.loads(response.read(12_000_000))
 
 

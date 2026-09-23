@@ -93,6 +93,20 @@ class AppTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.attach(self.sid, 'secret.exe', b'x')
 
+    def test_photo_uses_private_jpeg_only_after_explicit_request(self):
+        self.app.attach(self.sid, 'label.jpg', b'jpeg-bytes')
+        captured = []
+        def fake(url, **kw):
+            captured.append(kw['payload'])
+            return {'output':[{'content':[{'type':'output_text','text':json.dumps({'answer':'На фото читается 027228','search_query':'027228'})}]}]}
+        self.app.ai_fetch = fake
+        with patch.dict(os.environ, {'OPENAI_API_KEY':'test-only-not-real'}):
+            result = self.app.photo(self.sid, self.store.load(self.sid), 'Найди товар по фото', 'ru')
+        self.assertEqual(result['search_query'], '027228')
+        image = captured[0]['input'][0]['content'][1]
+        self.assertTrue(image['image_url'].startswith('data:image/jpeg;base64,'))
+        self.assertEqual(image['detail'], 'low')
+
     def test_minimum_batch_and_real_ekt_shape(self):
         p = normalize({'id':515291, 'name':'027228', 'price':64920, 'quantity':23,
                        'stores':[{'name':'Алматы','quantity':5}], 'properties':{'KRATNOST_MIN':'2'}})

@@ -1,4 +1,5 @@
 """Server-side catalog, optional OpenAI Responses API and persistent local cart."""
+import base64
 import csv
 import html
 import io
@@ -109,6 +110,44 @@ class Assistant:
             self.ai_error = True
             return None
 
+    def photo(self, sid, state, message, language):
+        """Read a user-selected JPEG only when they explicitly ask to search it."""
+        key = os.getenv('OPENAI_API_KEY', '')
+        image = next((item for item in reversed(state['uploads']) if item.get('type') == 'image/jpeg' and item.get('storage')), None)
+        if not key or not image:
+            return None
+        path = ROOT / '.runtime' / 'uploads' / sid / image['storage']
+        if not path.is_file() or path.stat().st_size > MAX_UPLOAD_BYTES:
+            return None
+        try:
+            encoded = base64.b64encode(path.read_bytes()).decode()
+            result = self.ai_fetch('https://api.openai.com/v1/responses', timeout=25, headers={
+                'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'
+            }, payload={
+                'model': os.getenv('OPENAI_MODEL', 'gpt-4.1-mini'), 'store': False, 'max_output_tokens': 300,
+                'instructions': 'Ты помогаешь найти электротехнический товар по фотографии. '
+                    'Извлеки только то, что реально видно: артикул, марку, модель и технические обозначения. '
+                    'Не выдумывай цену, остаток, совместимость или производителя. '
+                    'Верни answer на языке ru или kk и search_query: короткую строку для поиска по каталогу. '
+                    'Если маркировка не читается, честно скажи это и верни пустой search_query.',
+                'input': [{'role': 'user', 'content': [
+                    {'type': 'input_text', 'text': message + '\nЯзык ответа: ' + language},
+                    {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,' + encoded, 'detail': 'low'},
+                ]}],
+                'text': {'format': {'type': 'json_schema', 'name': 'photo_lookup', 'strict': True, 'schema': {
+                    'type': 'object', 'properties': {'answer': {'type': 'string'}, 'search_query': {'type': 'string'}},
+                    'required': ['answer', 'search_query'], 'additionalProperties': False}}}
+            })
+            text = ''.join(c['text'] for item in result.get('output', []) for c in item.get('content', []) if c.get('type') == 'output_text')
+            parsed = json.loads(text)
+            if not isinstance(parsed.get('answer'), str) or not isinstance(parsed.get('search_query'), str):
+                raise ValueError('Invalid vision response')
+            self.ai_error = False
+            return parsed
+        except Exception:
+            self.ai_error = True
+            return None
+
     def status(self):
         return {**self.catalog.status(), 'ai': 'unavailable' if self.ai_error else ('configured' if os.getenv('OPENAI_API_KEY') else 'off'), 'cartIntegration': 'local'}
 
@@ -182,7 +221,7 @@ class Assistant:
             state['cart'].append({'product': p, 'qty': total, 'source': pending['source']})
         return {**self.response(state, 'Добавлено в корзину прототипа. Список сохранён. На ekt.kz заказ ещё не создан.'), 'added': True, 'basketUrl': '/basket#cart'}
 
-    def chat(self, state, message, language='ru'):
+    def chat(self, sid, state, message, language='ru'):
         q = message.strip().lower()
         if re.fullmatch(r'(да\s*,?\s*добавь|подтверждаю|иә\s*,?\s*қос)[.!]?', q):
             return self.confirm(state, state['pending']['token'] if state['pending'] else '')
@@ -199,6 +238,14 @@ class Assistant:
             return self.response(state, 'Каталог загружается или недоступен. Повторите запрос после обновления статуса.')
         products = self.catalog.all()
         matches = search(products, q)
+        wants_photo = bool(re.search(r'фото|фотограф|изображ|картин|снимк|распозн|photo|image', q))
+        photo_answer = ''
+        if wants_photo:
+            vision = self.photo(sid, state, message, language)
+            if vision:
+                photo_answer, matches = vision['answer'], search(products, vision['search_query']) if vision['search_query'] else []
+            elif any(item.get('type') == 'image/jpeg' for item in state['uploads']):
+                return self.response(state, 'Не удалось распознать фото. Проверьте, что OpenAI-ключ добавлен, или напишите артикул с фотографии.')
         wants_add = bool(re.search(r'добав|корзин|себет|\bқос\b', q))
         if not matches and state['last'] and (re.fullmatch(r'(?:добавь|добавить|можно)\s+[-+]?\d+(?:[.,]\d+)?\s*(?:шт\w*|штук\w*)', q) or q in ('подбери аналог', 'аналог')):
             matches = [p for p in products if p['id'] == state['last']]
@@ -207,7 +254,8 @@ class Assistant:
             if ai and ai['search_query']:
                 matches = search(products, ai['search_query'])
         if not matches:
-            return self.response(state, 'Не нашла точного совпадения в загруженном каталоге. Укажите артикул или название и параметры, например «DRX250 125А».')
+            prefix = photo_answer + '\n' if photo_answer else ''
+            return self.response(state, prefix + 'Не нашла точного совпадения в загруженном каталоге. Укажите артикул или название и параметры, например «DRX250 125А».')
         if len(matches) == 1:
             state['last'] = matches[0]['id']
         if wants_add:
@@ -226,13 +274,15 @@ class Assistant:
         if len(matches) == 1 and ('аналог' in q or matches[0]['stock'] == 0):
             original = matches[0]
             candidates = self.analogs(original)
-            return self.response(state, 'Исходный товар: ' + original['name'] + '. ' + ('Ниже кандидаты по совпадающим параметрам; совместимость нужно проверить.' if candidates else 'Подтверждённых аналогов в загруженном каталоге нет.'), [original] + candidates)
+            return self.response(state, (photo_answer + '\n' if photo_answer else '') + 'Исходный товар: ' + original['name'] + '. ' + ('Ниже кандидаты по совпадающим параметрам; совместимость нужно проверить.' if candidates else 'Подтверждённых аналогов в загруженном каталоге нет.'), [original] + candidates)
         try:
             cards = [self.catalog.detail(p['id']) for p in matches[:3]] if self.catalog.source == 'live' and len(matches) > 1 else matches
         except Exception:
             return self.response(state, 'Карточка сейчас недоступна. Ниже данные списка; цену и остаток перепроверим перед добавлением.', matches)
-        ai = self.ai(message, cards, state['history'], language, state['uploads'])
+        ai = None if photo_answer else self.ai(message, cards, state['history'], language, state['uploads'])
         text = ai['answer'] if ai else ('Найдены товары. Укажите количество в карточке и нажмите «Выбрать».' if language == 'ru' else 'Тауарлар табылды. Карточкадан санын таңдап, «Таңдау» түймесін басыңыз.')
+        if photo_answer:
+            text = photo_answer + '\n' + text
         return self.response(state, text, cards)
 
     def handle(self, sid, body):
@@ -258,7 +308,7 @@ class Assistant:
                 message = body.get('message', '')
                 if not isinstance(message, str) or not 1 <= len(message.strip()) <= 2000:
                     raise ValueError('Invalid message')
-                result = self.chat(state, message, body.get('language', 'ru'))
+                result = self.chat(sid, state, message, body.get('language', 'ru'))
                 state['history'] = (state['history'] + [{'user': message, 'assistant': result['answer']}])[-6:]
             else:
                 raise ValueError('Unknown action')
@@ -280,7 +330,7 @@ class Assistant:
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / (secrets.token_urlsafe(16) + suffix)
             path.write_bytes(content)
-            item = {'name': name[:140], 'type': UPLOAD_TYPES[suffix], 'size': len(content), 'excerpt': upload_excerpt(path, suffix), 'created': int(time.time())}
+            item = {'name': name[:140], 'type': UPLOAD_TYPES[suffix], 'size': len(content), 'excerpt': upload_excerpt(path, suffix), 'created': int(time.time()), 'storage': path.name}
             state['uploads'].append(item)
             self.store.save(sid, state)
         return {key: item[key] for key in ('name', 'type', 'size')}

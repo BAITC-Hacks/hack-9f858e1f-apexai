@@ -80,6 +80,7 @@ async function upload() {
   const response = await fetch('/api/upload', {method:'POST', body:form});
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Не удалось прикрепить файл.');
   input.value = ''; el('attachmentStatus').textContent = `✓ ${data.file.name} (${Math.ceil(data.file.size / 1024)} КБ)`;
+  el('analyzePhoto').hidden = data.file.type !== 'image/jpeg';
   return data.file;
 }
 async function submit(text) {
@@ -89,6 +90,7 @@ async function submit(text) {
   catch (error) { say(error.message || tr('Файл не удалось прикрепить.','Файл тіркелмеді.')); busy = false; el('send').disabled = false; el('activity').textContent = ''; }
 }
 el('chatForm').addEventListener('submit', event => {event.preventDefault();submit(el('message').value)});
+el('analyzePhoto').addEventListener('click', () => {el('analyzePhoto').hidden = true; submit(tr('Найди товар по прикреплённому фото','Тіркелген фотодан тауарды тап'))});
 document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click', () => submit(b.dataset.query)));
 function translate() {
   document.documentElement.lang = language; document.querySelectorAll('[data-ru]').forEach(n => n.textContent = n.dataset[language]);
