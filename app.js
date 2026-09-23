@@ -55,6 +55,15 @@ function renderPending(value) {
   el('confirmation').append(node('p', `${value.product.name}\n${value.qty} × ${money(value.product.price)}`));
   el('confirmation').append(button(tr('Да, добавь', 'Иә, қос'), () => request({action:'confirm', token:value.token})), button(tr('Отмена', 'Болдырмау'), () => request({action:'cancel'})));
 }
+function renderCompanions(items) {
+  if (!items?.length) return;
+  const card = node('div', undefined, 'companion-card');
+  card.append(node('b', tr('Чтобы ничего не забыть:', 'Ештеңені ұмытпау үшін:')));
+  card.append(node('p', tr('Это только вопросы-подсказки. В корзину ничего не добавится.', 'Бұл тек сұрақ-кеңестер. Себетке ештеңе қосылмайды.')));
+  const actions = node('div', undefined, 'companion-actions');
+  items.forEach(item => actions.append(button(item.label, () => submit(item.message))));
+  card.append(actions); talk.append(card);
+}
 function renderStatus(s) {
   const source = {loading:tr('Каталог загружается…','Каталог жүктелуде…'),live:tr('Каталог ekt.kz','ekt.kz каталогы'),demo:tr('ДЕМО-КАТАЛОГ','ДЕМО КАТАЛОГ'),unavailable:tr('Каталог недоступен','Каталог қолжетімсіз')}[s.source];
   el('catalogStatus').textContent = `${source} · ${s.count} ${tr('товаров','тауар')}`; el('catalogStatus').dataset.source = s.source;
@@ -68,7 +77,7 @@ async function request(body) {
     const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Ошибка сервера');
     say(data.answer);
     if (data.added) {const link = node('a', tr('Перейти в корзину →','Себетке өту →'), 'source-link');link.href = '/basket#cart';talk.append(link)}
-    data.products.forEach(productCard); renderCart(data.cart); renderPending(data.pending); renderStatus(data.status); talk.scrollTop = talk.scrollHeight;
+    data.products.forEach(productCard); renderCompanions(data.companions); renderCart(data.cart); renderPending(data.pending); renderStatus(data.status); talk.scrollTop = talk.scrollHeight;
   } catch (error) { say(tr('Запрос не выполнен. Проверьте соединение и повторите.','Сұрау орындалмады. Байланысты тексеріп, қайталаңыз.'));
   } finally { busy = false; el('send').disabled = false; el('activity').textContent = ''; }
 }
@@ -91,6 +100,33 @@ async function submit(text) {
 }
 el('chatForm').addEventListener('submit', event => {event.preventDefault();submit(el('message').value)});
 el('analyzePhoto').addEventListener('click', () => {el('analyzePhoto').hidden = true; submit(tr('Найди товар по прикреплённому фото','Тіркелген фотодан тауарды тап'))});
+let recorder;
+async function recordVoice() {
+  const control = el('record'); const status = el('voiceStatus');
+  if (recorder?.state === 'recording') { recorder.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { status.textContent = tr('Браузер не поддерживает запись голоса.', 'Браузер дауыстық жазбаны қолдамайды.'); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true}); const chunks = [];
+    const options = MediaRecorder.isTypeSupported('audio/webm') ? {mimeType:'audio/webm'} : undefined;
+    recorder = new MediaRecorder(stream, options);
+    recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(track => track.stop()); control.classList.remove('recording'); control.textContent = '🎙'; control.disabled = true;
+      const audio = new Blob(chunks, {type:recorder.mimeType || 'audio/webm'});
+      if (!audio.size) { status.textContent = tr('Запись не получилась. Попробуйте ещё раз.', 'Жазба шықпады. Қайталап көріңіз.'); control.disabled = false; return; }
+      status.textContent = tr('Распознаю голос…', 'Дауысты тануда…');
+      try {
+        const form = new FormData(); form.append('audio', audio, 'voice.webm');
+        const response = await fetch('/api/transcribe', {method:'POST', body:form}); const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Не удалось распознать голос.');
+        el('message').value = data.text; status.textContent = tr('Проверьте распознанный текст и нажмите «Отправить».', 'Танылған мәтінді тексеріп, «Жіберу» түймесін басыңыз.'); el('message').focus();
+      } catch (error) { status.textContent = error.message || tr('Не удалось распознать голос.', 'Дауысты тану мүмкін болмады.'); }
+      finally { control.disabled = false; }
+    };
+    recorder.start(); control.classList.add('recording'); control.textContent = '■'; status.textContent = tr('Идёт запись — нажмите квадрат, когда закончите.', 'Жазба жүріп жатыр — аяқтағанда шаршыны басыңыз.');
+  } catch { status.textContent = tr('Нужен доступ к микрофону. Разрешите его в браузере и повторите.', 'Микрофонға рұқсат беріп, қайталап көріңіз.'); }
+}
+el('record').addEventListener('click', recordVoice);
 document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click', () => submit(b.dataset.query)));
 function translate() {
   document.documentElement.lang = language; document.querySelectorAll('[data-ru]').forEach(n => n.textContent = n.dataset[language]);

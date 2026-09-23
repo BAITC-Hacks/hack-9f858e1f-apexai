@@ -93,6 +93,30 @@ class AppTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.attach(self.sid, 'secret.exe', b'x')
 
+    def test_selection_offers_questions_without_changing_cart(self):
+        proposal = self.act(action='propose', id=515291, qty=2)
+        self.assertEqual(proposal['cart'], [])
+        self.assertIsNotNone(proposal['pending'])
+        self.assertEqual([item['label'] for item in proposal['companions']], ['Кабель', 'Монтаж', 'Сертификат'])
+        self.assertTrue(all('Добав' not in item['message'] for item in proposal['companions']))
+
+    def test_voice_transcription_sends_audio_without_persisting_it(self):
+        captured = []
+        class Response:
+            def read(self): return '{"text":"Нужны автоматы на щиток"}'.encode()
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+        app = Assistant(self.catalog, self.store, audio_open=lambda request, **kwargs: (captured.append((request, kwargs)) or Response()))
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-only-not-real'}):
+            text = app.transcribe('voice.webm', b'voice-bytes')
+        request, kwargs = captured[0]
+        self.assertEqual(text, 'Нужны автоматы на щиток')
+        self.assertEqual(request.full_url, 'https://api.openai.com/v1/audio/transcriptions')
+        self.assertIn(b'gpt-transcribe', request.data)
+        self.assertIn(b'voice-bytes', request.data)
+        self.assertEqual(kwargs['timeout'], 45)
+        self.assertEqual(self.store.load(self.sid)['uploads'], [])
+
     def test_photo_uses_private_jpeg_only_after_explicit_request(self):
         self.app.attach(self.sid, 'label.jpg', b'jpeg-bytes')
         captured = []

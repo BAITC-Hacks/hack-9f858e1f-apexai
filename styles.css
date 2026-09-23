@@ -183,3 +183,18 @@ html[lang=kk] .assistant::before { content: "EKT / КӨМЕКШІ"; }
   html { scroll-behavior: auto; }
   button, a { transition: none; }
 }
+
+/* Voice SOS controls and optional follow-up prompts. */
+.record { width: 42px !important; height: 42px !important; flex: 0 0 42px !important; background: #f4f7f0 !important; color: #356b42 !important; border: 1px solid #c5d5bf !important; font-size: 17px !important; }
+.record:hover { background: #e3eddb !important; }
+.record.recording { background: #ae332d !important; color: #fff !important; border-color: #ae332d !important; }
+.companion-card { flex-shrink: 0; width: 100%; max-width: 660px; padding: 16px 18px; border: 1px solid #e8d59e; border-radius: 10px; background: #fffaf0; }
+.companion-card b { font-size: 13px; color: #5e4d21; }
+.companion-card p { margin: 5px 0 11px; color: #796a40; font-size: 12px; }
+.companion-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.companion-actions button { padding: 7px 10px; border: 1px solid #dec675; border-radius: 7px; background: #fff; color: #65531c; font-size: 12px; font-weight: 650; }
+.companion-actions button:hover { background: #fff3cc; }
+@media (max-width: 440px) {
+  .record { width: 38px !important; height: 38px !important; flex-basis: 38px !important; }
+  .companion-card { padding: 14px; }
+}

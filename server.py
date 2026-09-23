@@ -10,6 +10,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import urllib.request
 import zipfile
 from email.parser import BytesParser
 from email.policy import default
@@ -17,11 +18,13 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-from catalog import Catalog, ROOT, alternatives, request_json, search
+from catalog import Catalog, ROOT, TLS_CONTEXT, alternatives, family, request_json, search
 
 MAX_UPLOAD_BYTES = 6 * 1024 * 1024
 MAX_UPLOADS_PER_SESSION = 5
 UPLOAD_TYPES = {'.pdf': 'application/pdf', '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+MAX_AUDIO_BYTES = 10 * 1024 * 1024
+AUDIO_TYPES = {'.webm': 'audio/webm', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.mp4': 'audio/mp4'}
 
 
 class UploadError(ValueError):
@@ -76,8 +79,8 @@ class Store:
 
 
 class Assistant:
-    def __init__(self, catalog, store, ai_fetch=request_json):
-        self.catalog, self.store, self.ai_fetch = catalog, store, ai_fetch
+    def __init__(self, catalog, store, ai_fetch=request_json, audio_open=urllib.request.urlopen):
+        self.catalog, self.store, self.ai_fetch, self.audio_open = catalog, store, ai_fetch, audio_open
         self.ai_error = False
 
     def ai(self, query, products, history, language, uploads=None):
@@ -151,8 +154,64 @@ class Assistant:
     def status(self):
         return {**self.catalog.status(), 'ai': 'unavailable' if self.ai_error else ('configured' if os.getenv('OPENAI_API_KEY') else 'off'), 'cartIntegration': 'local'}
 
-    def response(self, state, text='', cards=None):
-        return {'answer': text, 'products': cards or [], 'cart': state['cart'], 'pending': state['pending'], 'status': self.status()}
+    def response(self, state, text='', cards=None, companions=None):
+        return {'answer': text, 'products': cards or [], 'companions': companions or [], 'cart': state['cart'], 'pending': state['pending'], 'status': self.status()}
+
+    @staticmethod
+    def companion_questions(product):
+        """Questions only: they never add related goods to the cart."""
+        label = product['article'] or product['name']
+        kind = family(product)
+        if kind == 'breaker':
+            return [
+                {'label': 'Кабель', 'message': f'Для {label} нужен кабель. Уточните сечение, длину и способ прокладки.'},
+                {'label': 'Монтаж', 'message': f'Для {label} нужны DIN-рейка, крепления или щит? Уточните тип монтажа.'},
+                {'label': 'Сертификат', 'message': f'Нужен сертификат для {label}?'},
+            ]
+        if kind == 'light':
+            return [
+                {'label': 'Крепления', 'message': f'Для {label} нужны крепления или подвес?'},
+                {'label': 'Кабель', 'message': f'Для {label} нужен кабель? Уточните длину и способ прокладки.'},
+                {'label': 'Сертификат', 'message': f'Нужен сертификат для {label}?'},
+            ]
+        return [
+            {'label': 'Кабель', 'message': f'Для {label} нужен кабель? Уточните сечение, длину и способ прокладки.'},
+            {'label': 'Монтаж', 'message': f'Для {label} нужны крепления или монтажные элементы?'},
+            {'label': 'Сертификат', 'message': f'Нужен сертификат для {label}?'},
+        ]
+
+    def transcribe(self, filename, content):
+        """Transcribe an explicitly recorded clip without persisting its bytes."""
+        suffix = Path(filename).suffix.lower()
+        if suffix not in AUDIO_TYPES:
+            raise UploadError('Поддерживаются WebM, MP3, M4A, WAV или MP4.')
+        if not content or len(content) > MAX_AUDIO_BYTES:
+            raise UploadError('Голосовая запись должна быть от 1 байта до 10 МБ.')
+        key = os.getenv('OPENAI_API_KEY', '')
+        if not key:
+            raise UploadError('OpenAI-ключ не настроен. Голосовой запрос пока недоступен.')
+        boundary = '----ekt' + secrets.token_hex(16)
+        safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', Path(filename).name) or 'voice' + suffix
+        body = b''.join([
+            f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-transcribe\r\n'.encode(),
+            f'--{boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n'.encode() + 'Электротехника, EKT, артикулы, автоматы, кабель, DIN-рейка, сертификат.\r\n'.encode(),
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{safe_name}"\r\nContent-Type: {AUDIO_TYPES[suffix]}\r\n\r\n'.encode(),
+            content, b'\r\n', f'--{boundary}--\r\n'.encode(),
+        ])
+        request = urllib.request.Request('https://api.openai.com/v1/audio/transcriptions', data=body, headers={
+            'Authorization': 'Bearer ' + key, 'Content-Type': f'multipart/form-data; boundary={boundary}'
+        })
+        try:
+            with self.audio_open(request, timeout=45, context=TLS_CONTEXT) as response:
+                payload = json.loads(response.read())
+            text = payload.get('text') if isinstance(payload, dict) else None
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError('Missing transcription')
+            self.ai_error = False
+            return text.strip()[:2000]
+        except Exception as error:
+            self.ai_error = True
+            raise UploadError('Не удалось распознать голос. Попробуйте ещё раз или напишите запрос.') from error
 
     def analogs(self, original):
         if self.catalog.source != 'live':
@@ -196,7 +255,7 @@ class Assistant:
         if qty + existing > p['stock']:
             return self.response(state, f'Доступно {p["stock"]} шт., в корзине {existing}. Можно добавить ещё {max(0, p["stock"] - existing)} шт.', self.analogs(p) if not p['stock'] else [p])
         state['pending'] = {'token': secrets.token_urlsafe(18), 'product': p, 'qty': qty, 'source': source, 'expires': time.time() + 300}
-        return self.response(state, f'Добавить «{p["name"]}», {qty} шт. по {p["price"]:g} ₸ в локальную корзину? Подтвердите кнопкой или фразой «Да, добавь».')
+        return self.response(state, f'Добавить «{p["name"]}», {qty} шт. по {p["price"]:g} ₸ в локальную корзину? Подтвердите кнопкой или фразой «Да, добавь».', [p], self.companion_questions(p))
 
     def confirm(self, state, token):
         pending = state['pending']
@@ -387,25 +446,30 @@ def make_handler(assistant):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            if path not in ('/api/chat', '/api/upload'):
+            if path not in ('/api/chat', '/api/upload', '/api/transcribe'):
                 return self.send(404, {'error': 'Not found'})
             origin = self.headers.get('Origin')
             if (origin and urlparse(origin).netloc != self.headers.get('Host', '')) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
                 return self.send(403, {'error': 'Cross-origin request rejected'})
             try:
                 length = int(self.headers.get('Content-Length', '0'))
-                if path == '/api/upload':
-                    if not 1 <= length <= MAX_UPLOAD_BYTES + 10000:
-                        return self.send(413, {'error': 'Файл должен быть не больше 6 МБ.'})
+                if path in ('/api/upload', '/api/transcribe'):
+                    limit = MAX_UPLOAD_BYTES if path == '/api/upload' else MAX_AUDIO_BYTES
+                    if not 1 <= length <= limit + 10000:
+                        return self.send(413, {'error': 'Файл должен быть не больше 6 МБ.' if path == '/api/upload' else 'Голосовая запись должна быть не больше 10 МБ.'})
                     if self.headers.get_content_type() != 'multipart/form-data':
                         return self.send(415, {'error': 'Файл должен быть отправлен как multipart/form-data.'})
                     raw = self.rfile.read(length)
                     head = f'Content-Type: {self.headers.get("Content-Type")}\r\nMIME-Version: 1.0\r\n\r\n'.encode()
                     form = BytesParser(policy=default).parsebytes(head + raw)
-                    parts = [part for part in form.iter_parts() if part.get_content_disposition() == 'form-data' and part.get_param('name', header='content-disposition') == 'file' and part.get_filename()]
+                    field = 'file' if path == '/api/upload' else 'audio'
+                    parts = [part for part in form.iter_parts() if part.get_content_disposition() == 'form-data' and part.get_param('name', header='content-disposition') == field and part.get_filename()]
                     if len(parts) != 1:
-                        raise UploadError('Прикрепите один файл.')
+                        raise UploadError('Прикрепите один файл.' if path == '/api/upload' else 'Прикрепите одну голосовую запись.')
                     part, sid = parts[0], self.session()
+                    if path == '/api/transcribe':
+                        text = assistant.transcribe(part.get_filename(), part.get_payload(decode=True) or b'')
+                        return self.send(200, {'text': text, 'message': 'Голос распознан. Проверьте текст и отправьте его.'}, cookie=sid)
                     item = assistant.attach(sid, part.get_filename(), part.get_payload(decode=True) or b'')
                     return self.send(201, {'message': 'Файл прикреплён. Он хранится только локально.', 'file': item}, cookie=sid)
                 if self.headers.get_content_type() != 'application/json':
