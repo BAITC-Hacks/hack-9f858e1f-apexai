@@ -90,6 +90,7 @@ async function upload() {
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Не удалось прикрепить файл.');
   input.value = ''; el('attachmentStatus').textContent = `✓ ${data.file.name} (${Math.ceil(data.file.size / 1024)} КБ)`;
   el('analyzePhoto').hidden = data.file.type !== 'image/jpeg';
+  el('analyzeDocument').hidden = data.file.type === 'image/jpeg';
   return data.file;
 }
 async function submit(text) {
@@ -100,6 +101,7 @@ async function submit(text) {
 }
 el('chatForm').addEventListener('submit', event => {event.preventDefault();submit(el('message').value)});
 el('analyzePhoto').addEventListener('click', () => {el('analyzePhoto').hidden = true; submit(tr('Найди товар по прикреплённому фото','Тіркелген фотодан тауарды тап'))});
+el('analyzeDocument').addEventListener('click', () => {el('analyzeDocument').hidden = true; request({action:'analyze_document'})});
 let recorder;
 async function recordVoice() {
   const control = el('record'); const status = el('voiceStatus');

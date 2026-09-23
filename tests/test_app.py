@@ -117,6 +117,21 @@ class AppTests(unittest.TestCase):
         self.assertEqual(kwargs['timeout'], 45)
         self.assertEqual(self.store.load(self.sid)['uploads'], [])
 
+    def test_document_analysis_uses_only_explicitly_attached_document(self):
+        self.app.attach(self.sid, 'order.xlsx', b'pretend-xlsx')
+        captured = []
+        def fake(url, **kwargs):
+            captured.append(kwargs['payload'])
+            return {'output': [{'content': [{'type': 'output_text', 'text': json.dumps({'answer': 'В файле найден 027228.', 'search_query': '027228'})}]}]}
+        self.app.ai_fetch = fake
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-only-not-real'}):
+            result = self.act(action='analyze_document')
+        file_input = captured[0]['input'][0]['content'][1]
+        self.assertEqual(file_input['type'], 'input_file')
+        self.assertEqual(file_input['filename'], 'order.xlsx')
+        self.assertTrue(file_input['file_data'].startswith('data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,'))
+        self.assertEqual([item['id'] for item in result['products']], [515291])
+
     def test_photo_uses_private_jpeg_only_after_explicit_request(self):
         self.app.attach(self.sid, 'label.jpg', b'jpeg-bytes')
         captured = []
