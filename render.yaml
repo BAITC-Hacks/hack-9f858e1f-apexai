@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: apexai-ekt
+    runtime: python
+    plan: free
+    buildCommand: python -m compileall -q server.py catalog.py
+    startCommand: python server.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: HOST
+        value: 0.0.0.0
+      - key: EKT_MODE
+        value: live
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EKT_USER
+        sync: false
+      - key: EKT_PASSWORD
+        sync: false
