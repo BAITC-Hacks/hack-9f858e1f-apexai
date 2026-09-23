@@ -132,11 +132,43 @@ el('record').addEventListener('click', recordVoice);
 document.querySelectorAll('[data-query]').forEach(b => b.addEventListener('click', () => submit(b.dataset.query)));
 function translate() {
   document.documentElement.lang = language; document.querySelectorAll('[data-ru]').forEach(n => n.textContent = n.dataset[language]);
+  updateRegionLabel();
   el('language').textContent = language === 'ru' ? 'Қазақша' : 'Русский'; el('message').placeholder = tr('Расскажите, что хотите подобрать…','Не таңдағыңыз келетінін айтыңыз…');
 }
 el('language').addEventListener('click', () => {if (busy) return; language = language === 'ru' ? 'kk' : 'ru';localStorage.setItem('ekt-language',language);translate();request({action:'state'})});
-translate();say(tr('Здравствуйте! Я ваш консультант EKT. Что подбираем сегодня — освещение, кабель, розетки? Расскажите о своей задаче, и я помогу с выбором.','Сәлеметсіз бе! Мен EKT кеңесшісімін. Бүгін не таңдаймыз — жарық, кабель немесе розетка? Қандай жұмысқа керек екенін айтыңыз, таңдауға көмектесемін.'));request({action:'state'});
+function updateRegionLabel() {
+  const country = localStorage.getItem('ekt-country') || 'KZ';
+  el('regionSettings').textContent = (country === 'KZ' ? tr('Казахстан','Қазақстан') : tr('Другая страна','Басқа ел')) + ' · ' + (language === 'kk' ? 'Қазақша' : 'Русский');
+}
+function regionNote() {
+  el('regionNote').textContent = el('countryChoice').value === 'KZ'
+    ? tr('Каталог Казахстана. Цены указаны в тенге.','Қазақстан каталогы. Бағалар теңгемен көрсетілген.')
+    : tr('Вы можете смотреть каталог Казахстана. Доставку в другую страну нужно уточнить у EKT.','Қазақстан каталогын қарай аласыз. Басқа елге жеткізуді EKT компаниясынан нақтылау қажет.');
+}
+function greetVisitor() { say(tr('Здравствуйте! Я ваш консультант EKT. Что подбираем сегодня — освещение, кабель, розетки? Расскажите о своей задаче, и я помогу с выбором.','Сәлеметсіз бе! Мен EKT кеңесшісімін. Бүгін не таңдаймыз — жарық, кабель немесе розетка? Қандай жұмысқа керек екенін айтыңыз, таңдауға көмектесемін.')); }
+function openPreferences() {
+  el('countryChoice').value = localStorage.getItem('ekt-country') || 'KZ';
+  el('languageChoice').value = language;
+  regionNote(); el('welcomeDialog').showModal();
+}
+el('regionSettings').addEventListener('click',openPreferences);
+el('countryChoice').addEventListener('change',regionNote);
+el('languageChoice').addEventListener('change',()=>{ language=el('languageChoice').value; translate(); regionNote(); });
+el('welcomeForm').addEventListener('submit',event=>{
+  event.preventDefault();
+  localStorage.setItem('ekt-country',el('countryChoice').value);
+  localStorage.setItem('ekt-language',language);
+  localStorage.setItem('ekt-welcome-done','1');
+  translate(); el('welcomeDialog').close();
+  if (!talk.children.length) greetVisitor();
+  request({action:'state'});
+});
+el('welcomeDialog').addEventListener('cancel',()=>{if (!talk.children.length) greetVisitor();});
+translate();
+if (localStorage.getItem('ekt-welcome-done') === '1') greetVisitor(); else openPreferences();
+request({action:'state'});
 const statusTimer = setInterval(async () => {
   try { const r = await fetch('/api/status'); if (r.ok) {const s = await r.json();renderStatus(s);if (s.source !== 'loading' && !s.updating) clearInterval(statusTimer)}} catch {}
 }, 2000);
+
 
